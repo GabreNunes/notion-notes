@@ -98,6 +98,8 @@
       font-size: 14px;
     }
     .page-item.active, .page-item:hover { background: var(--bg-hover); color: var(--text-main); }
+    .delete-btn { opacity: 0; background: none; border: none; color: #eb5757; cursor: pointer; }
+    .page-item:hover .delete-btn { opacity: 1; }
 
     .main-content {
       flex: 1;
@@ -105,6 +107,7 @@
       flex-direction: column;
       overflow-y: auto;
       padding: 40px 100px;
+      position: relative;
     }
 
     .doc-title {
@@ -125,6 +128,38 @@
       line-height: 1.6;
     }
 
+    /* Floating Toolbar (Barra de Formatação) */
+    #floating-toolbar {
+      position: absolute;
+      display: none;
+      background: #252525;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      border-radius: 6px;
+      padding: 4px;
+      gap: 4px;
+      z-index: 100;
+    }
+    #floating-toolbar button, #floating-toolbar select {
+      background: none;
+      border: none;
+      color: var(--text-main);
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    #floating-toolbar button:hover { background: var(--bg-hover); }
+
+    /* Estilos do Bloco de Marca-Texto */
+    .callout {
+      background: #27251e;
+      border-left: 4px solid #d9730d;
+      padding: 12px;
+      border-radius: 4px;
+      margin: 8px 0;
+    }
+
     .status-bar {
       font-size: 12px;
       color: var(--text-muted);
@@ -132,130 +167,177 @@
     }
   </style>
 
-  <!-- Firebase SDKs via CDN (Pronto para rodar direto no navegador) -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import { getFirestore, collection, doc, setDoc, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  <!-- Firebase SDKs via CDN -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { getFirestore, collection, doc, setDoc, onSnapshot, query, where, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-  // Suas chaves reais do projeto do Firebase
-  const firebaseConfig = {
-    apiKey: "AIzaSyD0I2VjAagIbQF2EbiOcae9DJsPdZ0fU-Q",
-    authDomain: "meus-estudos-notion.firebaseapp.com",
-    projectId: "meus-estudos-notion",
-    storageBucket: "meus-estudos-notion.firebasestorage.app",
-    messagingSenderId: "1009187894623",
-    appId: "1:1009187894623:web:871ec71e823806e850f2ea",
-    measurementId: "G-QC5J02CCC3"
-  };
+    const firebaseConfig = {
+      apiKey: "AIzaSyD0I2VjAagIbQF2EbiOcae9DJsPdZ0fU-Q",
+      authDomain: "meus-estudos-notion.firebaseapp.com",
+      projectId: "meus-estudos-notion",
+      storageBucket: "meus-estudos-notion.firebasestorage.app",
+      messagingSenderId: "1009187894623",
+      appId: "1:1009187894623:web:871ec71e823806e850f2ea",
+      measurementId: "G-QC5J02CCC3"
+    };
 
-  // Inicializa o Firebase e os Serviços
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const db = getFirestore(app);
-  const provider = new GoogleAuthProvider();
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const provider = new GoogleAuthProvider();
 
-  let currentUser = null;
-  let activePageId = null;
-  let saveTimeout = null;
+    let currentUser = null;
+    let activePageId = null;
+    let saveTimeout = null;
 
-  // Mapeamento dos elementos da tela
-  const loginScreen = document.getElementById('login-screen');
-  const appScreen = document.getElementById('app');
-  const loginBtn = document.getElementById('login-btn');
-  const logoutBtn = document.getElementById('logout-btn');
-  const userNameSpan = document.getElementById('user-name');
-  const pageListEl = document.getElementById('page-list');
-  const newPageBtn = document.getElementById('new-page-btn');
-  const docTitleEl = document.getElementById('doc-title');
-  const editorEl = document.getElementById('editor');
-  const statusEl = document.getElementById('status');
+    const loginScreen = document.getElementById('login-screen');
+    const appScreen = document.getElementById('app');
+    const loginBtn = document.getElementById('login-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+    const userNameSpan = document.getElementById('user-name');
+    const pageListEl = document.getElementById('page-list');
+    const newPageBtn = document.getElementById('new-page-btn');
+    const docTitleEl = document.getElementById('doc-title');
+    const editorEl = document.getElementById('editor');
+    const statusEl = document.getElementById('status');
+    const toolbar = document.getElementById('floating-toolbar');
 
-  // Eventos de Autenticação
-  loginBtn.addEventListener('click', () => signInWithPopup(auth, provider));
-  logoutBtn.addEventListener('click', () => signOut(auth));
-
-  onAuthStateChanged(auth, (user) => {
-    if (user) {
-      currentUser = user;
-      userNameSpan.textContent = user.displayName || user.email;
-      loginScreen.style.display = 'none';
-      appScreen.style.display = 'flex';
-      loadUserPages();
-    } else {
-      currentUser = null;
-      loginScreen.style.display = 'flex';
-      appScreen.style.display = 'none';
-    }
-  });
-
-  // Carrega e sincroniza as páginas do usuário em tempo real
-  function loadUserPages() {
-    const q = query(collection(db, "pages"), where("userId", "==", currentUser.uid));
-    onSnapshot(q, (snapshot) => {
-      pageListEl.innerHTML = '';
-      let pages = [];
-      snapshot.forEach((docSnap) => {
-        pages.push({ id: docSnap.id, ...docSnap.data() });
-      });
-
-      pages.forEach((p) => {
-        const li = document.createElement('li');
-        li.className = `page-item ${p.id === activePageId ? 'active' : ''}`;
-        li.innerHTML = `<span>📄 ${p.title || 'Sem título'}</span>`;
-        li.onclick = () => selectPage(p);
-        pageListEl.appendChild(li);
-      });
-
-      if (!activePageId && pages.length > 0) {
-        selectPage(pages[0]);
-      } else if (pages.length === 0) {
-        createNewPage();
+    loginBtn.addEventListener('click', async () => {
+      try {
+        await signInWithPopup(auth, provider);
+      } catch (err) {
+        alert("Erro no login: " + err.message);
       }
     });
-  }
 
-  // Criar nova nota no Firestore
-  newPageBtn.addEventListener('click', createNewPage);
-  async function createNewPage() {
-    const pageRef = doc(collection(db, "pages"));
-    const newPage = {
-      title: "Nova Anotação",
-      content: "<p>Comece a digitar suas anotações aqui...</p>",
-      userId: currentUser.uid,
-      updatedAt: new Date()
-    };
-    await setDoc(pageRef, newPage);
-    selectPage({ id: pageRef.id, ...newPage });
-  }
+    logoutBtn.addEventListener('click', () => signOut(auth));
 
-  // Selecionar nota ativa
-  function selectPage(page) {
-    activePageId = page.id;
-    docTitleEl.value = page.title;
-    editorEl.innerHTML = page.content;
-    statusEl.textContent = "Sincronizado na nuvem";
-  }
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        currentUser = user;
+        userNameSpan.textContent = user.displayName || user.email;
+        loginScreen.style.display = 'none';
+        appScreen.style.display = 'flex';
+        loadUserPages();
+      } else {
+        currentUser = null;
+        loginScreen.style.display = 'flex';
+        appScreen.style.display = 'none';
+      }
+    });
 
-  // Salvamento automático na nuvem enquanto digita
-  function triggerAutoSave() {
-    statusEl.textContent = "Salvando na nuvem...";
-    clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(async () => {
-      if (!activePageId) return;
-      await setDoc(doc(db, "pages", activePageId), {
-        title: docTitleEl.value,
-        content: editorEl.innerHTML,
+    function loadUserPages() {
+      const q = query(collection(db, "pages"), where("userId", "==", currentUser.uid));
+      onSnapshot(q, (snapshot) => {
+        pageListEl.innerHTML = '';
+        let pages = [];
+        snapshot.forEach((docSnap) => {
+          pages.push({ id: docSnap.id, ...docSnap.data() });
+        });
+
+        pages.forEach((p) => {
+          const li = document.createElement('li');
+          li.className = `page-item ${p.id === activePageId ? 'active' : ''}`;
+          li.innerHTML = `
+            <span style="flex:1;">📄 ${p.title || 'Sem título'}</span>
+            <button class="delete-btn" title="Excluir página">🗑️</button>
+          `;
+
+          li.querySelector('span').onclick = () => selectPage(p);
+          li.querySelector('.delete-btn').onclick = (e) => {
+            e.stopPropagation();
+            deletePage(p.id);
+          };
+
+          pageListEl.appendChild(li);
+        });
+
+        if (!activePageId && pages.length > 0) {
+          selectPage(pages[0]);
+        } else if (pages.length === 0) {
+          createNewPage();
+        }
+      });
+    }
+
+    newPageBtn.addEventListener('click', createNewPage);
+    async function createNewPage() {
+      const pageRef = doc(collection(db, "pages"));
+      const newPage = {
+        title: "Nova Anotação",
+        content: "<p>Comece a digitar...</p>",
         userId: currentUser.uid,
         updatedAt: new Date()
-      }, { merge: true });
-      statusEl.textContent = "Salvo na nuvem!";
-    }, 1000);
-  }
+      };
+      await setDoc(pageRef, newPage);
+      selectPage({ id: pageRef.id, ...newPage });
+    }
 
-  docTitleEl.addEventListener('input', triggerAutoSave);
-  editorEl.addEventListener('input', triggerAutoSave);
-</script>
+    async function deletePage(id) {
+      if (confirm("Tem certeza que deseja excluir esta página?")) {
+        await deleteDoc(doc(db, "pages", id));
+        if (activePageId === id) activePageId = null;
+      }
+    }
+
+    function selectPage(page) {
+      activePageId = page.id;
+      docTitleEl.value = page.title;
+      editorEl.innerHTML = page.content;
+      statusEl.textContent = "Sincronizado na nuvem";
+    }
+
+    function triggerAutoSave() {
+      statusEl.textContent = "Salvando alterações...";
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(async () => {
+        if (!activePageId) return;
+        await setDoc(doc(db, "pages", activePageId), {
+          title: docTitleEl.value,
+          content: editorEl.innerHTML,
+          userId: currentUser.uid,
+          updatedAt: new Date()
+        }, { merge: true });
+        statusEl.textContent = "Salvo na nuvem!";
+      }, 1000);
+    }
+
+    docTitleEl.addEventListener('input', triggerAutoSave);
+    editorEl.addEventListener('input', triggerAutoSave);
+
+    // BARRA DE FERRAMENTAS FLUTUANTE (MOSTRAR AO SELECIONAR TEXTO)
+    document.addEventListener('selectionchange', () => {
+      const selection = window.getSelection();
+      if (!selection.isCollapsed && editorEl.contains(selection.anchorNode)) {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        toolbar.style.top = `${rect.top - 45 + window.scrollY}px`;
+        toolbar.style.left = `${rect.left + window.scrollX}px`;
+        toolbar.style.display = 'flex';
+      } else {
+        toolbar.style.display = 'none';
+      }
+    });
+
+    // COMANDOS DA BARRA FLUTUANTE
+    window.format = (command, value = null) => {
+      document.execCommand(command, false, value);
+      triggerAutoSave();
+    };
+
+    // SUPORTE AO COMANDO / (SLASH COMMANDS)
+    editorEl.addEventListener('keyup', (e) => {
+      if (e.key === '/') {
+        const cmd = prompt("Digite o formato:\n1 - Título 1\n2 - Título 2\n3 - Bloco de Destaque/Aviso\n4 - Lista");
+        if (cmd === '1') format('formatBlock', '<h1>');
+        if (cmd === '2') format('formatBlock', '<h2>');
+        if (cmd === '3') format('formatBlock', '<blockquote>');
+        if (cmd === '4') format('insertUnorderedList');
+      }
+    });
+  </script>
 </head>
 <body>
 
@@ -268,7 +350,36 @@
     </button>
   </div>
 
-  <!-- Tela do App -->
+  <!-- Barra Flutuante de Cores/Tamanho -->
+  <div id="floating-toolbar">
+    <button onclick="format('bold')"><b>B</b></button>
+    <button onclick="format('italic')"><i>I</i></button>
+    <button onclick="format('underline')"><u>U</u></button>
+    <select onchange="format('formatBlock', this.value)">
+      <option value="p">Texto Normal</option>
+      <option value="h1">Título 1</option>
+      <option value="h2">Título 2</option>
+      <option value="h3">Título 3</option>
+    </select>
+    <!-- Cor do Texto -->
+    <select onchange="format('foreColor', this.value)">
+      <option value="#d4d4d4">Cor: Padrão</option>
+      <option value="#e5695c">Vermelho</option>
+      <option value="#e2b93d">Amarelo</option>
+      <option value="#5abb5f">Verde</option>
+      <option value="#2eaadc">Azul</option>
+    </select>
+    <!-- Marca-Texto (Cor de Fundo) -->
+    <select onchange="format('hiliteColor', this.value)">
+      <option value="transparent">Fundo: Padrão</option>
+      <option value="#5c2b29">Fundo Vermelho</option>
+      <option value="#5c4b1a">Fundo Amarelo (Estilo Notion)</option>
+      <option value="#1c3829">Fundo Verde</option>
+      <option value="#1e3a4c">Fundo Azul</option>
+    </select>
+  </div>
+
+  <!-- App Main Layout -->
   <div id="app" style="display: none;">
     <aside class="sidebar">
       <div class="user-profile">
